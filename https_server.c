@@ -957,15 +957,25 @@ static void http_server(void *arg)
 	(ctx->srvcert) = &srvcert;
 	(ctx->pkey) = &pkey;
 
-    ESP_LOGV(TAG, "Reading CA certificate......");
-	extern const unsigned char cacert_pem_start[] asm("_binary_cacert_pem_start");
-	extern const unsigned char cacert_pem_end[]   asm("_binary_cacert_pem_end");
-	const unsigned int cacert_pem_bytes = cacert_pem_end - cacert_pem_start;
+    ESP_LOGV(TAG, "Reading Root CA certificate......");
+	extern const unsigned char rootcacert_pem_start[] asm("_binary_rootcacert_pem_start");
+	extern const unsigned char rootcacert_pem_end[]   asm("_binary_rootcacert_pem_end");
+	const unsigned int rootcacert_pem_bytes = rootcacert_pem_end - rootcacert_pem_start;
 
-    ESP_LOGV(TAG, "Reading Private Key......");
-	extern const unsigned char prvtkey_pem_start[] asm("_binary_prvtkey_pem_start");
-	extern const unsigned char prvtkey_pem_end[]   asm("_binary_prvtkey_pem_end");
-	const unsigned int prvtkey_pem_bytes = prvtkey_pem_end - prvtkey_pem_start;
+	ESP_LOGV(TAG, "Reading Intermediate CA certificate......");
+	extern const unsigned char intermediatecacert_pem_start[] asm("_binary_intermediatecacert_pem_start");
+	extern const unsigned char intermediatecacert_pem_end[]   asm("_binary_intermediatecacert_pem_end");
+	const unsigned int intermediatecacert_pem_bytes = intermediatecacert_pem_end - intermediatecacert_pem_start;
+
+	ESP_LOGV(TAG, "Reading Server certificate......");
+	extern const unsigned char servercert_pem_start[] asm("_binary_servercert_pem_start");
+	extern const unsigned char servercert_pem_end[]   asm("_binary_servercert_pem_end");
+	const unsigned int servercert_pem_bytes = servercert_pem_end - servercert_pem_start;
+
+    ESP_LOGV(TAG, "Reading Server Private Key......");
+	extern const unsigned char serverprvtkey_pem_start[] asm("_binary_serverprvtkey_pem_start");
+	extern const unsigned char serverprvtkey_pem_end[]   asm("_binary_serverprvtkey_pem_end");
+	const unsigned int serverprvtkey_pem_bytes = serverprvtkey_pem_end - serverprvtkey_pem_start;
 
     ESP_LOGV(TAG, "Setting mbedTLS context......");
     mbedtls_net_init( ctx->listen_fd );
@@ -998,8 +1008,8 @@ static void http_server(void *arg)
 	 */
     ESP_LOGV(TAG, "SSL server context set own certification......");
     ESP_LOGV(TAG, "Parsing test srv_crt......");
-	ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) cacert_pem_start,
-						cacert_pem_bytes );
+	ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) servercert_pem_start,
+				servercert_pem_bytes );
 	if( ret != ERR_OK )
 	{
 		ESP_LOGE(TAG, "ERROR: mbedtls_x509_crt_parse returned %d", ret );
@@ -1007,9 +1017,30 @@ static void http_server(void *arg)
 	}
 	ESP_LOGV(TAG, "OK");
 
+	ESP_LOGV(TAG, "Parsing Intermediate CA crt......");
+	ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) intermediatecacert_pem_start,
+				intermediatecacert_pem_bytes );
+	if( ret != ERR_OK )
+	{
+		ESP_LOGE(TAG, "ERROR: mbedtls_x509_crt_parse returned %d", ret );
+		goto exit;
+	}
+	ESP_LOGV(TAG, "OK");
+
+	ESP_LOGV(TAG, "Parsing Root CA crt......");
+	ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) rootcacert_pem_start,
+				rootcacert_pem_bytes );
+	if( ret != ERR_OK )
+	{
+		ESP_LOGE(TAG, "ERROR: mbedtls_x509_crt_parse returned %d", ret );
+		goto exit;
+	}
+	ESP_LOGV(TAG, "OK");
+
+
 	ESP_LOGV(TAG, "SSL server context set private key......");
-	ret =  mbedtls_pk_parse_key( ctx->pkey, (const unsigned char *) prvtkey_pem_start,
-							prvtkey_pem_bytes, NULL, 0 );
+	ret =  mbedtls_pk_parse_key( ctx->pkey, (const unsigned char *) serverprvtkey_pem_start,
+							serverprvtkey_pem_bytes, NULL, 0 );
 	if( ret != ERR_OK )
 	{
 		ESP_LOGE(TAG, "ERROR: mbedtls_pk_parse_key returned %d", ret );
