@@ -139,24 +139,6 @@ static esp_err_t add_keyval_pair(http_header_list_t *list, const char* name, con
 
 static const char* TAG = "http_server";
 
-const static char index_html[] = "<!DOCTYPE html>"
-      "<html>\n"
-      "<head>\n"
-      "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-      "  <style type=\"text/css\">\n"
-      "    html, body, iframe { margin: 0; padding: 0; height: 100%; }\n"
-      "    iframe { display: block; width: 100%; border: none; }\n"
-      "  </style>\n"
-      "<title>HELLO ESP32</title>\n"
-      "</head>\n"
-      "<body>\n"
-      "<h1>Hello World, from ESP32!</h1>\n"
-      "</body>\n"
-      "</html>\n";
-
-const static char response_OK[] =
-	"OK!\n";
-
 
 esp_err_t http_register_handler(http_server_t server,
         const char* uri_pattern, int method,
