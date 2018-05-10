@@ -110,10 +110,10 @@ struct http_context_ {
 };
 
 struct http_server_context_ {
-    EventGroupHandle_t start_done;
 	int port;
-    err_t server_task_err;
     TaskHandle_t task;
+	EventGroupHandle_t start_done;
+    err_t server_task_err;
     SLIST_HEAD(, http_handler_t) handlers;
     _lock_t handlers_lock;
     struct http_context_ connection_context;
@@ -918,17 +918,16 @@ static void http_server(void *arg)
 {
 	uint8_t bits;
     http_server_t ctx = (http_server_t) arg;
-
     do{
 		ESP_LOGV(TAG, "Checking Server Status...");
-		bits = xEventGroupWaitBits(ctx->start_done, SERVER_STARTED_BIT | SERVER_DONE_BIT, 0, 0, 0);
+		bits = xEventGroupWaitBits(ctx->start_done, SERVER_STARTED_BIT | SERVER_DONE_BIT, 0, pdTRUE, 1000 / portTICK_PERIOD_MS);
 
 		//If server had already been successfully started but it has crashed,
-		if ((bits & SERVER_STARTED_BIT) & (bits & SERVER_DONE_BIT)) {
-			ESP_LOGE(TAG, "Server has closed.");
-			ESP_LOGV(TAG, "Restarting server...");
-			memset(ctx + sizeof(ctx->start_done), 0, sizeof(ctx) - sizeof(ctx->start_done));
-			xEventGroupClearBits(ctx->start_done, SERVER_STARTED_BIT);
+		if ((bits & SERVER_STARTED_BIT) && (bits & SERVER_DONE_BIT)) {
+			ESP_LOGE(TAG, "Server has closed. Restarting server...");
+			xEventGroupClearBits(ctx->start_done, SERVER_STARTED_BIT | SERVER_DONE_BIT);
+			memset(&(ctx->connection_context), 0, sizeof(*ctx) - (size_t)((int)&(ctx->connection_context) - (int)ctx) );
+			bits = pdFALSE;
 		}
 
 		//If server has not successfully been started yet,
@@ -1119,7 +1118,6 @@ static void http_server(void *arg)
 			ESP_LOGV(TAG, "OK");
 
 			xEventGroupSetBits(ctx->start_done, SERVER_STARTED_BIT);
-
 		reset:
 			ESP_LOGI(TAG, "mbedTLS HTTPS server is running! Waiting for new connection...");
 			do {
@@ -1152,7 +1150,6 @@ static void http_server(void *arg)
 					}
 				}
 				ESP_LOGV(TAG, "OK");
-
 				ESP_LOGV(TAG, "Handling connection..." );
 				if (ret == ERR_OK) {
 					http_handle_connection(ctx, NULL);
@@ -1163,7 +1160,7 @@ static void http_server(void *arg)
 		exit:
 			if (ret != ERR_OK) {
 				error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
-				mbedtls_strerror( ctx->server_task_err, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
+				mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
 				ESP_LOGE(TAG, "Error %d: %s", ret, error_buf );
 				free(error_buf);
 
@@ -1223,13 +1220,11 @@ static void http_server(void *arg)
 			vTaskDelete(NULL);
 	#endif
 	    }
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
     }while(1);
 }
 
 esp_err_t http_server_start(const http_server_options_t* options, http_server_t* out_server)
 {
-	uint8_t bits;
     http_server_t ctx = calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
         return ESP_ERR_NO_MEM;
@@ -1258,27 +1253,7 @@ esp_err_t http_server_start(const http_server_options_t* options, http_server_t*
 
 	//Check server status by checking SERVER_STARTED_BIT (it server has been succesfully started) or SERVER_DONE_BIT (if it has crashed)
     ESP_LOGV(TAG, "Checking server status...");
-    bits = xEventGroupWaitBits(ctx->start_done, SERVER_STARTED_BIT, 0, 0, portMAX_DELAY);
- /*
-    //If it has crashed, shoe error log
-    if (bits & SERVER_DONE_BIT) {
-    	ESP_LOGE(TAG, "SERVER_DONE_BIT Error...");
-#ifdef HTTPS_SERVER
-    	char *error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
-		mbedtls_strerror( ctx->server_task_err, error_buf, 100 );
-		ESP_LOGE(TAG, "Error %d: %s", ret, error_buf );
-		free(error_buf);
-		esp_err_t err = ctx->server_task_err;
-		vEventGroupDelete(ctx->start_done);
-		free(ctx);
-#else
-        esp_err_t err = lwip_err_to_esp_err(ctx->server_task_err);
-        vEventGroupDelete(ctx->start_done);
-		free(ctx);
-#endif
-        return err;
-    }
-*/
+    xEventGroupWaitBits(ctx->start_done, SERVER_STARTED_BIT, 0, 0, portMAX_DELAY);
     ESP_LOGI(TAG, "Server started!");
 	*out_server = ctx;
 	return ESP_OK;
