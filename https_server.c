@@ -874,10 +874,10 @@ static void http_handle_connection(http_server_t server, void *arg_conn)
     if (err == ERR_OK) {
 		ctx->state = HTTP_COLLECTING_RESPONSE_HEADERS;
 		if (ctx->handler == NULL) {
-        	ESP_LOGD(TAG, "No registered Handler!")
+        	ESP_LOGD(TAG, "No registered Handler!");
 			http_send_not_found_response(ctx);
 		} else {
-        	ESP_LOGD(TAG, "Registered Handler Found!")
+        	ESP_LOGD(TAG, "Registered Handler Found!");
 			invoke_handler(ctx, HTTP_HANDLE_RESPONSE);
 		}
 	}

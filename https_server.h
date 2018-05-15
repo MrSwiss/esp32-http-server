@@ -44,7 +44,7 @@ extern "C" {
 #define ERROR_BUF_LENGTH 		100
 
 /** Uncomment to enable secure server */
-#define HTTPS_SERVER
+//#define HTTPS_SERVER
 
 /** Opaque type representing single HTTP connection */
 typedef struct http_context_* http_context_t;
