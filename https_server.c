@@ -41,6 +41,7 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/error.h"
 #include "mbedtls/certs.h"
+#include "mbedtls/ssl_ticket.h"
 
 #if defined(MBEDTLS_SSL_CACHE_C)
 #include "mbedtls/ssl_cache.h"
@@ -125,6 +126,7 @@ struct http_server_context_ {
 	mbedtls_x509_crt *srvcert;
 	mbedtls_pk_context *pkey;
 	mbedtls_ssl_cache_context *cache;
+    mbedtls_ssl_ticket_context *ticket_ctx;
 #else
     struct netconn* server_conn;
 #endif
@@ -948,6 +950,10 @@ static void http_server(void *arg)
 			mbedtls_ssl_cache_context cache;
 			(ctx->cache) = &cache;
 		#endif
+		#if defined(MBEDTLS_SSL_SESSION_TICKETS)
+		    mbedtls_ssl_ticket_context ticket_ctx;
+		    (ctx->ticket_ctx) = &ticket_ctx;
+		#endif
 			(ctx->listen_fd) = &listen_fd;
 			(ctx->connection_context.client_fd) = &client_fd;
 			(ctx->entropy) = &entropy;
@@ -993,9 +999,12 @@ static void http_server(void *arg)
 			mbedtls_ssl_config_init( ctx->conf );
 			ESP_LOGV(TAG, "OK");
 
-	#if defined(MBEDTLS_SSL_CACHE_C)
-			mbedtls_ssl_cache_init( &cache );
-	#endif
+#if defined(MBEDTLS_SSL_CACHE_C)
+			mbedtls_ssl_cache_init( ctx->cache );
+#endif
+#if defined(MBEDTLS_SSL_SESSION_TICKETS)
+			mbedtls_ssl_ticket_init( ctx->ticket_ctx );
+#endif
 			mbedtls_x509_crt_init( ctx->srvcert );
 			mbedtls_pk_init( ctx->pkey );
 			mbedtls_entropy_init( ctx->entropy );
@@ -1097,11 +1106,28 @@ static void http_server(void *arg)
 
 			mbedtls_ssl_conf_rng( ctx->conf, mbedtls_ctr_drbg_random, ctx->ctr_drbg );
 
-	#if defined(MBEDTLS_SSL_CACHE_C)
+#if defined(MBEDTLS_SSL_CACHE_C)
 			mbedtls_ssl_conf_session_cache( ctx->conf, ctx->cache,
 										   mbedtls_ssl_cache_get,
 										   mbedtls_ssl_cache_set );
-	#endif
+#endif
+
+			ESP_LOGV(TAG, "Setting up the SSL Session Tickets...." );
+#if defined(MBEDTLS_SSL_SESSION_TICKETS)
+			if( ( ret = mbedtls_ssl_ticket_setup( ctx->ticket_ctx ,
+								mbedtls_ctr_drbg_random, &ctr_drbg,
+								MBEDTLS_CIPHER_AES_256_GCM,
+								86400 ) ) != 0 )
+			{
+				ESP_LOGE(TAG, "ERROR: mbedtls_ssl_ticket_setup returned %d", ret );
+				goto exit;
+			}
+
+			mbedtls_ssl_conf_session_tickets_cb( &conf,
+					mbedtls_ssl_ticket_write,
+					mbedtls_ssl_ticket_parse,
+					ctx->ticket_ctx );
+#endif
 
 			mbedtls_ssl_conf_ca_chain( ctx->conf, (*ctx->srvcert).next, NULL );
 			if( ( ret = mbedtls_ssl_conf_own_cert( ctx->conf, ctx->srvcert, ctx->pkey ) ) != 0 )
@@ -1175,9 +1201,12 @@ static void http_server(void *arg)
 			mbedtls_pk_free( ctx->pkey );
 			mbedtls_ssl_free( ctx->connection_context.ssl_conn );
 			mbedtls_ssl_config_free( ctx->conf );
-	#if defined(MBEDTLS_SSL_CACHE_C)
+#if defined(MBEDTLS_SSL_CACHE_C)
 			mbedtls_ssl_cache_free( ctx->cache );
-	#endif
+#endif
+#if defined(MBEDTLS_SSL_SESSION_TICKETS)
+			mbedtls_ssl_ticket_free( ctx->ticket_ctx );
+#endif
 			mbedtls_ctr_drbg_free( ctx->ctr_drbg );
 			mbedtls_entropy_free( ctx->entropy );
 
