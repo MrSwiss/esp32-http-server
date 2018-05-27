@@ -15,6 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <http_server.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
@@ -32,8 +33,6 @@
 #include "lwip/api.h"
 
 #include "http_parser.h"
-#include "https_server.h"
-
 #include "mbedtls/platform.h"
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/esp_debug.h"

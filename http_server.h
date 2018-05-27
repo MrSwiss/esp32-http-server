@@ -28,6 +28,7 @@ extern "C" {
  */
 
 #include "sdkconfig.h"
+#include "esp_system.h"
 
 /* Pull in the definitions of HTTP methods */
 #include "http_parser.h"
