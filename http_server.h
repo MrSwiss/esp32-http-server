@@ -76,7 +76,7 @@ typedef struct {
 
 /** Default initializer for http_server_options_t */
 #define HTTP_SERVER_OPTIONS_DEFAULT()  {\
-    .port = 80, \
+    .port = 8080, \
     .task_affinity = tskNO_AFFINITY, \
     .task_stack_size = 4096, \
     .task_priority = 1, \

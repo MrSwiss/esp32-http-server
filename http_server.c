@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "mbedtls/config.h"
 
 #include <http_server.h>
 #include <stdlib.h>
@@ -123,7 +124,7 @@ struct http_server_context_ {
     mbedtls_entropy_context *entropy;
 	mbedtls_ctr_drbg_context *ctr_drbg;
 	mbedtls_ssl_config *conf;
-	mbedtls_x509_crt *srvcert;
+	mbedtls_x509_crt *srvcerts;
 	mbedtls_pk_context *pkey;
 	mbedtls_ssl_cache_context *cache;
     mbedtls_ssl_ticket_context *ticket_ctx;
@@ -825,34 +826,6 @@ static void http_handle_connection(http_server_t server, void *arg_conn)
 
 	while (ctx->state != HTTP_REQUEST_DONE) {
     	ESP_LOGV(TAG, "Reading from client..." );
-/*
-		memset( buf, 0, sizeof(char)*MBEDTLS_EXAMPLE_RECV_BUF_LEN);
-		//FIXME: add support for buffer > MBEDTLS_EXAMPLE_RECV_BUF_LEN
-		ret = mbedtls_ssl_read( server->connection_context.ssl_conn, buf, MBEDTLS_EXAMPLE_RECV_BUF_LEN);
-
-		if( ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE )
-			continue;
-
-		if( ret <= 0 )
-		{
-			switch( ret )
-			{
-				case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-					ESP_LOGW(TAG, "Error: connection was closed gracefully" );
-					break;
-
-				case MBEDTLS_ERR_NET_CONN_RESET:
-					ESP_LOGW(TAG, "Error: connection was reset by peer" );
-					break;
-
-				default:
-					ESP_LOGW(TAG, "Error: mbedtls_ssl_read returned -0x%x\n", -ret );
-					break;
-			}
-
-			break;
-		}
-*/
 		do
 		{
 			int terminated = 0;
@@ -1037,13 +1010,13 @@ static void http_server(void *arg)
 		if ((bits & SERVER_STARTED_BIT) && (bits & SERVER_DONE_BIT)) {
 			ESP_LOGE(TAG, "Server has closed. Restarting server...");
 			xEventGroupClearBits(ctx->start_done, SERVER_STARTED_BIT | SERVER_DONE_BIT);
-			memset(&(ctx->connection_context), 0, sizeof(*ctx) - (size_t)((int)&(ctx->connection_context) - (int)ctx) );
-			bits = pdFALSE;
+			memset(&(ctx->connection_context), 0, sizeof(struct http_context_) );			//Erases only the connection content
+			bits = false;
 		}
 
 		//If server has not successfully been started yet,
 	    if (!(bits & SERVER_STARTED_BIT)) {
-		#ifdef HTTPS_SERVER
+#ifdef HTTPS_SERVER
 			char *error_buf;
 			ESP_LOGV(TAG, "Declaring local mbedTLS context on task...");
 			int ret;
@@ -1053,23 +1026,23 @@ static void http_server(void *arg)
 			mbedtls_ctr_drbg_context ctr_drbg;
 			mbedtls_ssl_context ssl_conn;
 			mbedtls_ssl_config conf;
-			mbedtls_x509_crt srvcert;
+			mbedtls_x509_crt srvcerts;
 			mbedtls_pk_context pkey;
-		#if defined(MBEDTLS_SSL_CACHE_C)
+#if defined(MBEDTLS_SSL_CACHE_C)
 			mbedtls_ssl_cache_context cache;
 			(ctx->cache) = &cache;
-		#endif
-		#if defined(MBEDTLS_SSL_SESSION_TICKETS)
+#endif
+#if defined(MBEDTLS_SSL_SESSION_TICKETS)
 		    mbedtls_ssl_ticket_context ticket_ctx;
 		    (ctx->ticket_ctx) = &ticket_ctx;
-		#endif
+#endif
 			(ctx->listen_fd) = &listen_fd;
 			(ctx->connection_context.client_fd) = &client_fd;
 			(ctx->entropy) = &entropy;
 			(ctx->ctr_drbg) = &ctr_drbg;
 			(ctx->connection_context.ssl_conn) = &ssl_conn;
 			(ctx->conf) = &conf;
-			(ctx->srvcert) = &srvcert;
+			(ctx->srvcerts) = &srvcerts;
 			(ctx->pkey) = &pkey;
 
 			ESP_LOGV(TAG, "Reading Root CA certificate......");
@@ -1116,7 +1089,7 @@ static void http_server(void *arg)
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
 			mbedtls_ssl_ticket_init( ctx->ticket_ctx );
 #endif
-			mbedtls_x509_crt_init( ctx->srvcert );
+			mbedtls_x509_crt_init( ctx->srvcerts );
 			mbedtls_pk_init( ctx->pkey );
 			mbedtls_entropy_init( ctx->entropy );
 			mbedtls_ctr_drbg_init( ctx->ctr_drbg );
@@ -1130,10 +1103,9 @@ static void http_server(void *arg)
 			 * Instead, you may want to use mbedtls_x509_crt_parse_file() to read the
 			 * server and CA certificates, as well as mbedtls_pk_parse_keyfile().
 			 */
-			ESP_LOGV(TAG, "SSL server context set own certification......");
-			ESP_LOGV(TAG, "Parsing test srv_crt......");
-			ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) servercert_pem_start,
-						servercert_pem_bytes );
+			ESP_LOGV(TAG, "Parsing Root CA crt......");
+			ret = mbedtls_x509_crt_parse( ctx->srvcerts, (const unsigned char *) rootcacert_pem_start,
+						rootcacert_pem_bytes );
 			if( ret != ERR_OK )
 			{
 				ESP_LOGE(TAG, "ERROR: mbedtls_x509_crt_parse returned %d", ret );
@@ -1143,7 +1115,7 @@ static void http_server(void *arg)
 
 			/*
 			ESP_LOGV(TAG, "Parsing Intermediate CA crt......");
-			ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) intermediatecacert_pem_start,
+			ret = mbedtls_x509_crt_parse( ctx->srvcerts, (const unsigned char *) intermediatecacert_pem_start,
 						intermediatecacert_pem_bytes );
 			if( ret != ERR_OK )
 			{
@@ -1153,9 +1125,10 @@ static void http_server(void *arg)
 			ESP_LOGV(TAG, "OK");
 			*/
 
-			ESP_LOGV(TAG, "Parsing Root CA crt......");
-			ret = mbedtls_x509_crt_parse( ctx->srvcert, (const unsigned char *) rootcacert_pem_start,
-						rootcacert_pem_bytes );
+			ESP_LOGV(TAG, "SSL server context set own certification......");
+			ESP_LOGV(TAG, "Parsing test srv_crt......");
+			ret = mbedtls_x509_crt_parse( ctx->srvcerts, (const unsigned char *) servercert_pem_start,
+						servercert_pem_bytes );
 			if( ret != ERR_OK )
 			{
 				ESP_LOGE(TAG, "ERROR: mbedtls_x509_crt_parse returned %d", ret );
@@ -1175,7 +1148,7 @@ static void http_server(void *arg)
 			ESP_LOGV(TAG, "OK");
 
 			/*
-			 * 3. Seed the RNG
+			 * 2. Seed the RNG
 			 */
 			ESP_LOGV(TAG, "Seeding the random number generator..." );
 			if( ( ret = mbedtls_ctr_drbg_seed( ctx->ctr_drbg, mbedtls_entropy_func, ctx->entropy,
@@ -1188,7 +1161,7 @@ static void http_server(void *arg)
 			ESP_LOGV(TAG, "OK");
 
 			/*
-			 * 2. Setup the listening TCP socket
+			 * 3. Setup the listening TCP socket
 			 */
 			char *port = malloc(sizeof(char) * 6);
 			ESP_LOGV(TAG, "SSL server socket bind at localhost: %s ......", itoa(ctx->port, port,10));
@@ -1241,13 +1214,30 @@ static void http_server(void *arg)
 					mbedtls_ssl_ticket_parse,
 					ctx->ticket_ctx );
 #endif
+			/*First set root CA cert*/
+			mbedtls_ssl_conf_ca_chain( ctx->conf, ctx->srvcerts, NULL );
 
-			mbedtls_ssl_conf_ca_chain( ctx->conf, (*ctx->srvcert).next, NULL );
-			if( ( ret = mbedtls_ssl_conf_own_cert( ctx->conf, ctx->srvcert, ctx->pkey ) ) != 0 )
+			/*Them check for intermediate CA cert*/
+			if((*ctx->srvcerts).next->next == NULL)
 			{
-				ESP_LOGE(TAG, "ERROR: mbedtls_ssl_conf_own_cert returned %d", ret );
-				goto exit;
+				ESP_LOGV(TAG, "No intermediate cert. Setting server cert and pkey");
+				if( ( ret = mbedtls_ssl_conf_own_cert( ctx->conf, (*ctx->srvcerts).next, ctx->pkey ) ) != 0 )
+				{
+					ESP_LOGE(TAG, "ERROR: mbedtls_ssl_conf_own_cert returned %d", ret );
+					goto exit;
+				}
+			}else
+			{
+				ESP_LOGV(TAG, "Setting intermediate cert");
+				mbedtls_ssl_conf_ca_chain( ctx->conf, (*ctx->srvcerts).next, NULL );
+				ESP_LOGV(TAG, "Setting server cert and pkey");
+				if( ( ret = mbedtls_ssl_conf_own_cert( ctx->conf, (*ctx->srvcerts).next->next, ctx->pkey ) ) != 0 )
+				{
+					ESP_LOGE(TAG, "ERROR: mbedtls_ssl_conf_own_cert returned %d", ret );
+					goto exit;
+				}
 			}
+
 
 			if( ( ret = mbedtls_ssl_setup( ctx->connection_context.ssl_conn, ctx->conf ) ) != 0 )
 			{
@@ -1303,22 +1293,9 @@ reset:
 			} while (ret == ERR_OK);
 
 exit:
-			if (ret != ERR_OK) {
-				error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
-				mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
-				ESP_LOGE(TAG, "Error %d: %s", ret, error_buf );
-				free(error_buf);
-
-				//Set SERVER_DONE_BIT and save error at http_server_t struct
-				ctx->server_task_err = ret;
-				xEventGroupSetBits(ctx->start_done, SERVER_DONE_BIT);
-				ESP_LOGI(TAG, "Clearing SERVER_PROCESSING_REQUEST bit...");
-				xEventGroupClearBits(ctx->start_done, SERVER_PROCESSING_REQUEST);
-			}
-
 			mbedtls_net_free( ctx->connection_context.client_fd );
 			mbedtls_net_free( ctx->listen_fd );
-			mbedtls_x509_crt_free( ctx->srvcert );
+			mbedtls_x509_crt_free( ctx->srvcerts );
 			mbedtls_pk_free( ctx->pkey );
 			mbedtls_ssl_free( ctx->connection_context.ssl_conn );
 			mbedtls_ssl_config_free( ctx->conf );
@@ -1330,6 +1307,18 @@ exit:
 #endif
 			mbedtls_ctr_drbg_free( ctx->ctr_drbg );
 			mbedtls_entropy_free( ctx->entropy );
+
+			error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
+			mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
+			ESP_LOGE(TAG, "Error %d: %s", ret, error_buf );
+			free(error_buf);
+
+			//Set SERVER_DONE_BIT and save error at http_server_t struct
+			ctx->server_task_err = ret;
+			ESP_LOGI(TAG, "Clearing SERVER_PROCESSING_REQUEST bit...");
+			xEventGroupClearBits(ctx->start_done, SERVER_PROCESSING_REQUEST);
+			xEventGroupSetBits(ctx->start_done, SERVER_DONE_BIT);
+
 #else
 			struct netconn *client_conn;
 			err_t err;
@@ -1366,13 +1355,11 @@ exit:
 				netconn_close(ctx->server_conn);
 				netconn_delete(ctx->server_conn);
 			}
-			if (err != ERR_OK) {
-				ctx->server_task_err = err;
-				ESP_LOGI(TAG, "Clearing SERVER_PROCESSING_REQUEST bit...");
-				xEventGroupClearBits(ctx->start_done, SERVER_PROCESSING_REQUEST);
-				xEventGroupSetBits(ctx->start_done, SERVER_DONE_BIT);
-			}
-			vTaskDelete(NULL);
+
+			ctx->server_task_err = err;
+			ESP_LOGI(TAG, "Clearing SERVER_PROCESSING_REQUEST bit...");
+			xEventGroupClearBits(ctx->start_done, SERVER_PROCESSING_REQUEST);
+			xEventGroupSetBits(ctx->start_done, SERVER_DONE_BIT);
 	#endif
 	    }
     }while(1);
