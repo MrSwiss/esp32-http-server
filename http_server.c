@@ -14,13 +14,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "mbedtls/config.h"
+#include MBEDTLS_CONFIG_FILE
 
 #include <http_server.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/param.h>
-#include <sys/lock.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -661,16 +659,13 @@ esp_err_t http_response_write(http_context_t http_ctx, const http_buffer_t* buff
 		if( ret == MBEDTLS_ERR_NET_CONN_RESET )
 		{
 			ESP_LOGE(TAG, "ERROR: peer closed the connection\n\n" );
-		    //FIXME: reset connection
-			//goto reset;
+			break;
 		}
 
 		if( ret < 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE )
 		{
 			ESP_LOGE(TAG, "ERROR: mbedtls_ssl_write returned %d\n\n", ret );
 			break;
-			//FIXME: close connection
-			//goto exit;
 		}
 		if (ret > 0)
 			http_ctx->accumulated_response_size += ret;
@@ -851,11 +846,10 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 					case MBEDTLS_ERR_NET_CONN_RESET:
 						ESP_LOGW(TAG, "Error: connection was reset by peer" );
 						ret = MBEDTLS_ERR_NET_CONN_RESET;
-						return ret;
-
+						break;
 					default:
 						ESP_LOGW(TAG, "Error: mbedtls_ssl_read returned -0x%x\n", -ret );
-						return ret;
+						break;
 				}
 			}
 
@@ -883,8 +877,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 				memset( larger_buf, 0, ori_len + extra_len );
 				memcpy( larger_buf, buf, ori_len );
 
-				if(buf)														//Free original buffer;
-					free(buf);
+				free(buf);
 
 				/* This read should never fail and get the whole cached data */
 				ret = mbedtls_ssl_read( server->connection_context.ssl_conn, larger_buf + ori_len, extra_len );
@@ -920,8 +913,10 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 		}
 		while( 1 );
 
-		if( len == 0 )										//If output buffer length is 0 (indicating a error), finishes processing of this request
+		if( len == 0 || ret <=0 )									//If output buffer length is 0 (indicating a error), finishes processing of this request
 		{
+			ESP_LOGW(TAG, "WARNING: len = %d, ret = %d", len, ret);
+			free(buf);
 			return ret;
 		}
 	}
@@ -985,13 +980,12 @@ close_notify:
 		if( ret != MBEDTLS_ERR_SSL_WANT_READ &&
 			ret != MBEDTLS_ERR_SSL_WANT_WRITE )
 		{
-			ESP_LOGI(TAG, "ERROR: mbedtls_ssl_close_notify returned %d\n\n", ret );
+			ESP_LOGE(TAG, "ERROR: mbedtls_ssl_close_notify returned %d\n\n", ret );
 			break;
 		}
 	}
 	ESP_LOGI(TAG, "OK");
-	if(buf)
-		free(buf);
+	free(buf);
 	return ret;
 #else
     if (err != ERR_CLSD) {
@@ -1297,12 +1291,16 @@ reset:
 			/*
 			 * 5. Handshake
 			 */
+			ESP_LOGW(TAG, "Heap Memory Size before mbedtls_ssl_handshake: %d", esp_get_free_heap_size());
 			ESP_LOGV(TAG, "Performing the SSL/TLS handshake..." );
 			while( ( ret = mbedtls_ssl_handshake( ctx->connection_context.ssl_conn ) ) != ERR_OK )
 			{
+				ESP_LOGI(TAG, "mbedtls_ssl_handshake returned %s",
+						ret == MBEDTLS_ERR_SSL_WANT_READ ? "MBEDTLS_ERR_SSL_WANT_READ" :
+						ret == MBEDTLS_ERR_SSL_WANT_WRITE ? "MBEDTLS_ERR_SSL_WANT_WRITE" : "error!");
 				if( ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE )
 				{
-					ESP_LOGE(TAG, "ERROR: bedtls_ssl_handshake returned %d", ret );
+					ESP_LOGE(TAG, "ERROR: mbedtls_ssl_handshake returned %d", ret );
 					goto reset;
 				}
 			}

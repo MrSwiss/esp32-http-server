@@ -86,8 +86,8 @@ typedef struct {
 #define HTTPS_SERVER_OPTIONS_DEFAULT()  {\
     .port = 443, \
     .task_affinity = tskNO_AFFINITY, \
-    .task_stack_size = 10240, \
-    .task_priority = 8, \
+    .task_stack_size = 16384, \
+    .task_priority = 1, \
 }
 
 const static char index_html[] = "<!DOCTYPE html>"
