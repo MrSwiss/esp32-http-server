@@ -1295,7 +1295,7 @@ reset:
 			ESP_LOGV(TAG, "Performing the SSL/TLS handshake..." );
 			while( ( ret = mbedtls_ssl_handshake( ctx->connection_context.ssl_conn ) ) != ERR_OK )
 			{
-				ESP_LOGI(TAG, "mbedtls_ssl_handshake returned %s",
+				ESP_LOGV(TAG, "mbedtls_ssl_handshake returned %s",
 						ret == MBEDTLS_ERR_SSL_WANT_READ ? "MBEDTLS_ERR_SSL_WANT_READ" :
 						ret == MBEDTLS_ERR_SSL_WANT_WRITE ? "MBEDTLS_ERR_SSL_WANT_WRITE" : "error!");
 				if( ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE )
