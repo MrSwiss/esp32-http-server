@@ -564,10 +564,10 @@ static esp_err_t http_send_response_headers(http_context_t http_ctx)
 
     headers_list_clear(&http_ctx->response_headers);
 
+    esp_err_t ret;
 #ifdef HTTPS_SERVER
-    int ret;
     int actual_len;
-    ESP_LOGI(TAG, "Writing response headers..." );
+    ESP_LOGV(TAG, "Writing response headers..." );
 
     len = strlen(headers_buf);
     actual_len = 0;
@@ -579,34 +579,39 @@ static esp_err_t http_send_response_headers(http_context_t http_ctx)
 		if( ret == MBEDTLS_ERR_NET_CONN_RESET )
 		{
 			ESP_LOGE(TAG, "ERROR: peer closed the connection\n\n" );
-			//FIXME: reset connection
-			//goto reset;
+			break;
 		}
 
 		if( ret < 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE )
 		{
 			ESP_LOGE(TAG, "ERROR: mbedtls_ssl_write returned %d\n\n", ret );
 			break;
-			//FIXME: close connection
-			//goto exit;
 		}
 		if (ret > 0)
 			actual_len += ret;
 	}while( ret < 0 || ret < len );
 
-	ESP_LOGI(TAG, "%d bytes written:\n%s", actual_len, (char *)headers_buf);
-    free(headers_buf);
-    http_ctx->state = HTTP_SENDING_RESPONSE_BODY;
-	//FIXME: check return code from mbedTLS
-	return ESP_OK;
-#else
-    err_t err = netconn_write(http_ctx->conn, headers_buf, strlen(headers_buf), NETCONN_COPY);
-    free(headers_buf);
-
-    http_ctx->state = HTTP_SENDING_RESPONSE_BODY;
-
-    return lwip_err_to_esp_err(err);
+#ifdef MBEDTLS_ERROR_C
+	if( ret != ESP_OK )
+	{
+		char *error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
+		mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
+		ESP_LOGE(TAG, "Error during writing response: %d - %s\n\n", ret, error_buf );
+		free(error_buf);
+	}
 #endif
+
+#else
+    ret = netconn_write(http_ctx->conn, headers_buf, strlen(headers_buf), NETCONN_COPY);
+    ret = lwip_err_to_esp_err(ret);
+    if (ret != ERR_OK)
+   		ESP_LOGE(TAG, "netconn_write ret=%d", ret);
+#endif
+    http_ctx->state = HTTP_SENDING_RESPONSE_BODY;
+    if (ret == ERR_OK)
+    	ESP_LOGI(TAG, "%d bytes written:\n%s", strlen(headers_buf), (char *)headers_buf);
+    free(headers_buf);
+    return ret;
 }
 
 /* Common function called by http_response_begin and http_response_begin_multipart */
@@ -639,18 +644,17 @@ esp_err_t http_response_begin(http_context_t http_ctx, int code, const char* con
 esp_err_t http_response_write(http_context_t http_ctx, const http_buffer_t* buffer)
 {
 	size_t len;
-	int ret;
-	esp_err_t err;
+	esp_err_t ret;
     if (http_ctx->state == HTTP_COLLECTING_RESPONSE_HEADERS) {
-        err = http_send_response_headers(http_ctx);
-        if (err != ESP_OK) {
+    	ret = http_send_response_headers(http_ctx);
+        if (ret != ESP_OK) {
         	ESP_LOGE(TAG, "ERROR: in http_send_response_headers function...");
-            return err;
+            return ret;
         }
     }
 	len = buffer->size ? buffer->size : strlen((const char*) buffer->data);
+    ESP_LOGV(TAG, "Writing to client:" );
 #ifdef HTTPS_SERVER
-    ESP_LOGI(TAG, "Writing to client:" );
     ret = 0;
     do
 	{
@@ -671,18 +675,30 @@ esp_err_t http_response_write(http_context_t http_ctx, const http_buffer_t* buff
 			http_ctx->accumulated_response_size += ret;
 	}while( ret < 0 || ret < len );
 
-	ESP_LOGI(TAG, "%d bytes written:%s", http_ctx->accumulated_response_size, (char *)buffer->data);
-	return ret;
+    #ifdef MBEDTLS_ERROR_C
+	if( ret != ESP_OK )
+	{
+		char *error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
+		mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
+		ESP_LOGE(TAG, "Error during writing response: %d - %s\n\n", ret, error_buf );
+		free(error_buf);
+	}
+#endif
+
 #else
 	const int flag = buffer->data_is_persistent ? NETCONN_NOCOPY : NETCONN_COPY;
-	err_t rc = netconn_write(http_ctx->conn, buffer->data, len, flag);
-    if (rc != ESP_OK) {
-        ESP_LOGD(TAG, "netconn_write rc=%d", rc);
-    } else {
-        http_ctx->accumulated_response_size += len;
-    }
-    return lwip_err_to_esp_err(rc);
+	len = buffer->size ? buffer->size : strlen((const char*) buffer->data);
+	ret = netconn_write(http_ctx->conn, buffer->data, len, flag);
+	ret = lwip_err_to_esp_err(ret);
+	if (ret != ERR_OK)
+		ESP_LOGE(TAG, "netconn_write ret=%d", ret);
 #endif
+    if (ret == ERR_OK)
+    {
+        http_ctx->accumulated_response_size += len;
+        ESP_LOGI(TAG, "%d bytes written:%s", http_ctx->accumulated_response_size, (char *)buffer->data);
+    }
+	return ret;
 }
 
 
@@ -781,9 +797,7 @@ static const char* http_response_code_to_str(int code)
 
 static int http_handle_connection(http_server_t server, void *arg_conn)
 {
-	unsigned char *buf;
-	unsigned char *larger_buf;
-    size_t len = 0;
+	char *buf;
 
     /* Single threaded server, one context only */
     http_context_t ctx = &server->connection_context;
@@ -793,8 +807,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 #ifdef HTTPS_SERVER
 #else
     struct netbuf *inbuf = NULL;
-	u16_t buflen;
-	err_t err = ERR_OK;
+	int err = ERR_OK;
     ctx->conn = (struct netconn *)arg_conn;
 #endif
     http_parser_init(&ctx->parser, HTTP_REQUEST);
@@ -812,6 +825,8 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 
 #ifdef HTTPS_SERVER
     int ret;
+    char *larger_buf;
+	size_t len = 0;
     size_t parsed_bytes = 0;
     /*
 	 * 6. Read the HTTP Request
@@ -827,7 +842,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 			int terminated = 0;
 			len = sizeof(char)*MBEDTLS_EXAMPLE_RECV_BUF_LEN - 1;
 			memset( buf, 0, sizeof(char)*MBEDTLS_EXAMPLE_RECV_BUF_LEN);
-			ret = mbedtls_ssl_read( server->connection_context.ssl_conn, buf, len );
+			ret = mbedtls_ssl_read( server->connection_context.ssl_conn, (unsigned char*)buf, len );
 			if( mbedtls_status_is_ssl_in_progress( ret ) )
 			{
 				continue;
@@ -880,7 +895,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 				free(buf);
 
 				/* This read should never fail and get the whole cached data */
-				ret = mbedtls_ssl_read( server->connection_context.ssl_conn, larger_buf + ori_len, extra_len );
+				ret = mbedtls_ssl_read( server->connection_context.ssl_conn, (unsigned char*)larger_buf + ori_len, extra_len );
 				if( ret != extra_len ||
 					mbedtls_ssl_get_bytes_avail( server->connection_context.ssl_conn ) != 0 )
 				{
@@ -923,21 +938,28 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 	ESP_LOGD(TAG, "Read looping returned: %d", parsed_bytes);
 
 #else //HTPPS SERVER OFF
+    u16_t buflen;
+    u16_t accumulated_buflen = 0;
+    char *tempbuf = NULL;
 	while (ctx->state != HTTP_REQUEST_DONE) {
 		err = netconn_recv(ctx->conn, &inbuf);
 		if (err != ERR_OK) {
 			break;
 		}
 
-		err = netbuf_data(inbuf, (void**) &buf, &buflen);
-		if (err != ERR_OK) {
-			break;
-		}
+		do
+		{
+			err = netbuf_data(inbuf, (void**) &buf, &buflen);
+			if (err != ERR_OK) {
+				break;
+			}
+			//FIXME: check content-length to properly terminate HTTP request
 
-		size_t parsed_bytes = http_parser_execute(&ctx->parser, &parser_settings, (char *)buf, buflen);
-		if (parsed_bytes < buflen) {
-			break;
-		}
+			size_t parsed_bytes = http_parser_execute(&ctx->parser, &parser_settings, (char *)buf, buflen);
+			if (parsed_bytes < buflen) {
+				break;
+			}
+		} while(netbuf_next(inbuf) >= 0);
 	}
 #endif
 
@@ -994,6 +1016,7 @@ close_notify:
     if (inbuf) {
         netbuf_delete(inbuf);
     }
+    return err;
 #endif
 }
 
