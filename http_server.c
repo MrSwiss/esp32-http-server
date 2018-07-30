@@ -539,7 +539,7 @@ static esp_err_t http_send_response_headers(http_context_t http_ctx)
     /* Write response */
     size_t buf_size = total_headers_size;
     char* buf_ptr = headers_buf;
-    int len;
+    int len = 0, actual_len = 0;
     if (http_ctx->response_code > 0) {
         len = snprintf(buf_ptr, buf_size, "HTTP/1.1 %d %s\r\n",
                 http_ctx->response_code, http_response_code_to_str(http_ctx->response_code));
@@ -565,12 +565,10 @@ static esp_err_t http_send_response_headers(http_context_t http_ctx)
     headers_list_clear(&http_ctx->response_headers);
 
     esp_err_t ret;
-#ifdef HTTPS_SERVER
-    int actual_len;
     ESP_LOGV(TAG, "Writing response headers..." );
 
+#ifdef HTTPS_SERVER
     len = strlen(headers_buf);
-    actual_len = 0;
     ret = 0;
 	do
 	{
@@ -592,25 +590,30 @@ static esp_err_t http_send_response_headers(http_context_t http_ctx)
 	}while( ret < 0 || ret < len );
 
 #ifdef MBEDTLS_ERROR_C
-	if( ret != ESP_OK )
+	if( ret < ERR_OK )
 	{
 		char *error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
 		mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
 		ESP_LOGE(TAG, "Error during writing response: %d - %s\n\n", ret, error_buf );
 		free(error_buf);
+	}else
+	{
+		ret = ERR_OK;
 	}
 #endif
 
 #else
-    ret = netconn_write(http_ctx->conn, headers_buf, strlen(headers_buf), NETCONN_COPY);
+	actual_len = strlen(headers_buf);
+	ret = netconn_write(http_ctx->conn, headers_buf, actual_len, NETCONN_COPY);
     ret = lwip_err_to_esp_err(ret);
+
     if (ret != ERR_OK)
    		ESP_LOGE(TAG, "netconn_write ret=%d", ret);
 #endif
-    http_ctx->state = HTTP_SENDING_RESPONSE_BODY;
     if (ret == ERR_OK)
-    	ESP_LOGI(TAG, "%d bytes written:\n%s", strlen(headers_buf), (char *)headers_buf);
+    	ESP_LOGI(TAG, "%d bytes written:\n%s", actual_len, (char *)headers_buf);
     free(headers_buf);
+    http_ctx->state = HTTP_SENDING_RESPONSE_BODY;
     return ret;
 }
 
@@ -676,12 +679,14 @@ esp_err_t http_response_write(http_context_t http_ctx, const http_buffer_t* buff
 	}while( ret < 0 || ret < len );
 
     #ifdef MBEDTLS_ERROR_C
-	if( ret != ESP_OK )
+	if( ret < ERR_OK )
 	{
 		char *error_buf = malloc(sizeof(char)*ERROR_BUF_LENGTH);
 		mbedtls_strerror( ret, error_buf, sizeof(char)*ERROR_BUF_LENGTH );
-		ESP_LOGE(TAG, "Error during writing response: %d - %s\n\n", ret, error_buf );
+		ESP_LOGE(TAG, "Error during writing response: %d - %s", ret, error_buf );
 		free(error_buf);
+	}else{
+		ret = ERR_OK;
 	}
 #endif
 
@@ -691,13 +696,14 @@ esp_err_t http_response_write(http_context_t http_ctx, const http_buffer_t* buff
 	ret = netconn_write(http_ctx->conn, buffer->data, len, flag);
 	ret = lwip_err_to_esp_err(ret);
 	if (ret != ERR_OK)
+	{
 		ESP_LOGE(TAG, "netconn_write ret=%d", ret);
+	}else{
+		http_ctx->accumulated_response_size += len;
+	}
 #endif
-    if (ret == ERR_OK)
-    {
-        http_ctx->accumulated_response_size += len;
-        ESP_LOGI(TAG, "%d bytes written:%s", http_ctx->accumulated_response_size, (char *)buffer->data);
-    }
+	ESP_LOGD(TAG, "%d bytes written:%s", http_ctx->accumulated_response_size, (char *)buffer->data);
+
 	return ret;
 }
 
