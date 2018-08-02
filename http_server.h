@@ -52,8 +52,10 @@ extern "C" {
 /** Error buffer length */
 #define ERROR_BUF_LENGTH 		100
 
-/** Uncomment to enable secure server */
-#define HTTPS_SERVER
+/** Enable SSL secure server */
+#ifdef CONFIG_ENABLE_SECURED_SERVER
+	#define HTTPS_SERVER
+#endif
 
 /** Opaque type representing single HTTP connection */
 typedef struct http_context_* http_context_t;
@@ -76,7 +78,7 @@ typedef struct {
 
 /** Default initializer for http_server_options_t */
 #define HTTP_SERVER_OPTIONS_DEFAULT()  {\
-    .port = 8080, \
+    .port = CONFIG_HTTP_DEFAULT_PORT, \
     .task_affinity = tskNO_AFFINITY, \
     .task_stack_size = 4096, \
     .task_priority = 1, \
@@ -84,7 +86,7 @@ typedef struct {
 
 /** Default initializer for http_server_options_t */
 #define HTTPS_SERVER_OPTIONS_DEFAULT()  {\
-    .port = 443, \
+    .port = CONFIG_HTTPS_DEFAULT_PORT, \
     .task_affinity = tskNO_AFFINITY, \
     .task_stack_size = 16384, \
     .task_priority = 1, \

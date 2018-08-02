@@ -1,0 +1,21 @@
+menu "HTTP(S) Server Configurations"
+
+config ENABLE_SECURED_SERVER
+    bool "Enable SSL secure server"
+    default y
+    help
+        If not, this library will use HTTP server
+
+config HTTP_DEFAULT_PORT
+    int "Default HTTP port"
+    default 80
+    help
+        Default HTTP server port
+
+config HTTPS_DEFAULT_PORT
+    int "Default HTTPS port"
+    default 443
+    help
+        Default HTTPS port
+
+endmenu
