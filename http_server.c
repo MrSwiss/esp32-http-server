@@ -804,7 +804,6 @@ static const char* http_response_code_to_str(int code)
 static int http_handle_connection(http_server_t server, void *arg_conn)
 {
 	char *buf;
-
     /* Single threaded server, one context only */
     http_context_t ctx = &server->connection_context;
 
@@ -944,9 +943,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 	ESP_LOGD(TAG, "Read looping returned: %d", parsed_bytes);
 
 #else //HTPPS SERVER OFF
-    u16_t buflen;
-    u16_t accumulated_buflen = 0;
-    char *tempbuf = NULL;
+    u16_t buflen = 0;
 	while (ctx->state != HTTP_REQUEST_DONE) {
 		err = netconn_recv(ctx->conn, &inbuf);
 		if (err != ERR_OK) {
