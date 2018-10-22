@@ -181,8 +181,11 @@ static http_handler_t* http_find_handler(http_server_t server, const char* uri, 
     http_handler_t* it;
     _lock_acquire(&server->handlers_lock);
     SLIST_FOREACH(it, &server->handlers, list_entry) {
-        if (strcasecmp(uri, it->uri_pattern) == 0
-            && method == it->method) {
+        if ( (strcasecmp(uri, it->uri_pattern) == 0
+                && method == it->method
+                && method != HTTP_OPTIONS)
+            || (strcasecmp("*", it->uri_pattern) == 0
+                    && method == HTTP_OPTIONS)) {
             break;
         }
     }
@@ -920,6 +923,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 				ESP_LOGI(TAG, "%d bytes read (%d + %d): \n%s", len,
 						ori_len, extra_len, (char *) buf );
 			}
+            ESP_LOGD(TAG, "%s", buf);
 
 			ESP_LOGI(TAG, "Calling http_parser_execute...");
 			parsed_bytes = http_parser_execute(&ctx->parser, &parser_settings, (char *)buf, len);
@@ -957,7 +961,7 @@ static int http_handle_connection(http_server_t server, void *arg_conn)
 				break;
 			}
 			//FIXME: check content-length to properly terminate HTTP request
-
+			ESP_LOGD(TAG, "%s", buf);
 			size_t parsed_bytes = http_parser_execute(&ctx->parser, &parser_settings, (char *)buf, buflen);
 			if (parsed_bytes < buflen) {
 				break;
